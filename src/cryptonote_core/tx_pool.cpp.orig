@@ -315,8 +315,17 @@ namespace cryptonote
       auto ins_res = kei_image_set.insert(id);
       CHECK_AND_ASSERT_MES(ins_res.second, false, "internal error: try to insert duplicate iterator in key_image set");
     }
+<<<<<<< HEAD
+=======
+
+    tvc.m_verifivation_failed = false;
+
+    m_txs_by_fee_and_receive_time.emplace(std::pair<double, std::time_t>(fee / (double)blob_size, receive_time), id);
+
+    MINFO("Transaction " << id << " added to pool");
     ++m_cookie;
 
+>>>>>>> 7f99201... core: cache block template where possible
     return true;
   }
   //---------------------------------------------------------------------------------
@@ -412,10 +421,17 @@ namespace cryptonote
   bool tx_memory_pool::remove_stuck_transactions()
   {
     CRITICAL_REGION_LOCAL(m_transactions_lock);
+<<<<<<< HEAD
     CRITICAL_REGION_LOCAL1(m_blockchain);
     std::unordered_set<crypto::hash> remove;
     m_blockchain.for_all_txpool_txes([this, &remove](const crypto::hash &txid, const txpool_tx_meta_t &meta, const cryptonote::blobdata*) {
       uint64_t tx_age = time(nullptr) - meta.receive_time;
+=======
+    bool changed = false;
+    for(auto it = m_transactions.begin(); it!= m_transactions.end();)
+    {
+      uint64_t tx_age = time(nullptr) - it->second.receive_time;
+>>>>>>> 7f99201... core: cache block template where possible
 
       if((tx_age > CRYPTONOTE_MEMPOOL_TX_LIVETIME && !meta.kept_by_block) ||
          (tx_age > CRYPTONOTE_MEMPOOL_TX_FROM_ALT_BLOCK_LIVETIME && meta.kept_by_block) )
@@ -430,6 +446,7 @@ namespace cryptonote
         {
           m_txs_by_fee_and_receive_time.erase(sorted_it);
         }
+<<<<<<< HEAD
         m_timed_out_transactions.insert(txid);
         remove.insert(txid);
       }
@@ -463,8 +480,17 @@ namespace cryptonote
           // ignore error
         }
       }
-      ++m_cookie;
+=======
+        m_timed_out_transactions.insert(it->first);
+        auto pit = it++;
+        m_transactions.erase(pit);
+        changed = true;
+      }else
+        ++it;
+>>>>>>> 7f99201... core: cache block template where possible
     }
+    if (changed)
+      ++m_cookie;
     return true;
   }
   //---------------------------------------------------------------------------------
@@ -1037,8 +1063,6 @@ namespace cryptonote
     CRITICAL_REGION_LOCAL(m_transactions_lock);
     CRITICAL_REGION_LOCAL1(m_blockchain);
 
-    m_cookie = 0;
-
     m_txs_by_fee_and_receive_time.clear();
     m_spent_key_images.clear();
     return m_blockchain.for_all_txpool_txes([this](const crypto::hash &txid, const txpool_tx_meta_t &meta, const cryptonote::blobdata *bd) {
@@ -1055,7 +1079,30 @@ namespace cryptonote
       }
       m_txs_by_fee_and_receive_time.emplace(std::pair<double, time_t>(meta.fee / (double)meta.blob_size, meta.receive_time), txid);
       return true;
+<<<<<<< HEAD
     }, true);
+=======
+    bool res = tools::unserialize_obj_from_file(*this, state_file_path);
+    if(!res)
+    {
+      LOG_ERROR("Failed to load memory pool from file " << state_file_path);
+
+      m_transactions.clear();
+      m_txs_by_fee_and_receive_time.clear();
+      m_spent_key_images.clear();
+    }
+
+    // no need to store queue of sorted transactions, as it's easy to generate.
+    for (const auto& tx : m_transactions)
+    {
+      m_txs_by_fee_and_receive_time.emplace(std::pair<double, time_t>(tx.second.fee / (double)tx.second.blob_size, tx.second.receive_time), tx.first);
+    }
+
+    m_cookie = 0;
+
+    // Ignore deserialization error
+    return true;
+>>>>>>> 7f99201... core: cache block template where possible
   }
 
   //---------------------------------------------------------------------------------
