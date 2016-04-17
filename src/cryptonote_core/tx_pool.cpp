@@ -81,7 +81,7 @@ namespace cryptonote
   }
   //---------------------------------------------------------------------------------
   //---------------------------------------------------------------------------------
-  tx_memory_pool::tx_memory_pool(Blockchain& bchs): m_blockchain(bchs)
+  tx_memory_pool::tx_memory_pool(Blockchain& bchs): m_blockchain(bchs), m_cookie(0)
   {
 
   }
@@ -256,6 +256,8 @@ namespace cryptonote
     m_txs_by_fee_and_receive_time.emplace(std::pair<double, std::time_t>(fee / (double)blob_size, receive_time), id);
 
     MINFO("Transaction " << id << " added to pool");
+    ++m_cookie;
+
     return true;
   }
   //---------------------------------------------------------------------------------
@@ -297,6 +299,7 @@ namespace cryptonote
       }
 
     }
+    ++m_cookie;
     return true;
   }
   //---------------------------------------------------------------------------------
@@ -320,6 +323,7 @@ namespace cryptonote
     remove_transaction_keyimages(it->second.tx);
     m_transactions.erase(it);
     m_txs_by_fee_and_receive_time.erase(sorted_it);
+    ++m_cookie;
     return true;
   }
   //---------------------------------------------------------------------------------
@@ -341,6 +345,7 @@ namespace cryptonote
   bool tx_memory_pool::remove_stuck_transactions()
   {
     CRITICAL_REGION_LOCAL(m_transactions_lock);
+    bool changed = false;
     for(auto it = m_transactions.begin(); it!= m_transactions.end();)
     {
       uint64_t tx_age = time(nullptr) - it->second.receive_time;
@@ -362,9 +367,12 @@ namespace cryptonote
         m_timed_out_transactions.insert(it->first);
         auto pit = it++;
         m_transactions.erase(pit);
+        changed = true;
       }else
         ++it;
     }
+    if (changed)
+      ++m_cookie;
     return true;
   }
   //---------------------------------------------------------------------------------
@@ -405,6 +413,7 @@ namespace cryptonote
         i->second.last_relayed_time = now;
       }
     }
+    ++m_cookie;
   }
   //---------------------------------------------------------------------------------
   size_t tx_memory_pool::get_transactions_count() const
@@ -720,6 +729,8 @@ namespace cryptonote
       }
       it++;
     }
+    if (n_removed > 0)
+      ++m_cookie;
     return n_removed;
   }
   //---------------------------------------------------------------------------------
@@ -751,6 +762,8 @@ namespace cryptonote
     {
       m_txs_by_fee_and_receive_time.emplace(std::pair<double, time_t>(tx.second.fee / (double)tx.second.blob_size, tx.second.receive_time), tx.first);
     }
+
+    m_cookie = 0;
 
     // Ignore deserialization error
     return true;
