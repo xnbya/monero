@@ -42,6 +42,7 @@ set(unit_tests_sources
   epee_levin_protocol_handler_async.cpp
   fee.cpp
   get_xtype_from_string.cpp
+  http_auth.cpp
   main.cpp
   mnemonics.cpp
   mul_div.cpp
@@ -73,6 +74,7 @@ target_link_libraries(unit_tests
     rpc
     wallet
     p2p
+    epee
     ${GTEST_LIBRARIES}
     ${CMAKE_THREAD_LIBS_INIT}
     ${EXTRA_LIBRARIES})

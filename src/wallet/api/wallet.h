@@ -107,14 +107,16 @@ public:
     virtual std::string getTxKey(const std::string &txid) const;
     virtual std::string signMessage(const std::string &message);
     virtual bool verifySignedMessage(const std::string &message, const std::string &address, const std::string &signature) const;
+    virtual void startRefresh();
+    virtual void pauseRefresh();
+    virtual bool parse_uri(const std::string &uri, std::string &address, std::string &payment_id, uint64_t &amount, std::string &tx_description, std::string &recipient_name, std::vector<std::string> &unknown_parameters, std::string &error);
 
 private:
     void clearStatus();
     void refreshThreadFunc();
     void doRefresh();
-    void startRefresh();
+    bool daemonSynced() const;
     void stopRefresh();
-    void pauseRefresh();
     bool isNewWallet() const;
     void doInit(const std::string &daemon_address, uint64_t upper_transaction_size_limit);
 
@@ -148,9 +150,11 @@ private:
     // flag indicating wallet is recovering from seed
     // so it shouldn't be considered as new and pull blocks (slow-refresh)
     // instead of pulling hashes (fast-refresh)
-    bool                m_recoveringFromSeed;
+    std::atomic<bool>   m_recoveringFromSeed;
     std::atomic<bool>   m_synchronized;
-    bool                m_rebuildWalletCache;
+    std::atomic<bool>   m_rebuildWalletCache;
+    // cache connection status to avoid unnecessary RPC calls
+    mutable std::atomic<bool>   m_is_connected;
 };
 
 

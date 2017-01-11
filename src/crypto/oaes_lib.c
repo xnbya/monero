@@ -34,12 +34,13 @@
 #include <stdio.h>
 
 // OS X, FreeBSD, and OpenBSD don't need malloc.h
-#if !defined(__APPLE__) && !defined(__FreeBSD__) && !defined(__OpenBSD__)
+#if !defined(__APPLE__) && !defined(__FreeBSD__) && !defined(__OpenBSD__) \
+  && !defined(__DragonFly__)
  #include <malloc.h>
 #endif
 
-// FreeBSD, and OpenBSD also don't need timeb.h
-#if !defined(__FreeBSD__) && !defined(__OpenBSD__)
+// ANDROID, FreeBSD, and OpenBSD also don't need timeb.h
+#if !defined(__FreeBSD__) && !defined(__OpenBSD__) && !defined(__ANDROID__)
  #include <sys/timeb.h>
 #else
  #include <sys/time.h>
@@ -498,7 +499,7 @@ static void oaes_get_seed( char buf[RANDSIZ + 1] )
 #else
 static uint32_t oaes_get_seed(void)
 {
-        #if !defined(__FreeBSD__) && !defined(__OpenBSD__)
+        #if !defined(__FreeBSD__) && !defined(__OpenBSD__) && !defined(__ANDROID__)
 	struct timeb timer;
 	struct tm *gmTimer;
 	char * _test = NULL;

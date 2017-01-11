@@ -30,8 +30,6 @@
 
 #include <random>
 #include <tuple>
-#include <boost/archive/binary_oarchive.hpp>
-#include <boost/archive/binary_iarchive.hpp>
 #include <boost/format.hpp>
 #include <boost/optional/optional.hpp>
 #include <boost/utility/value_init.hpp>
@@ -53,7 +51,6 @@ using namespace epee;
 #include "cryptonote_protocol/blobdatatype.h"
 #include "mnemonics/electrum-words.h"
 #include "common/i18n.h"
-#include "common/dns_utils.h"
 #include "common/util.h"
 #include "rapidjson/document.h"
 #include "rapidjson/writer.h"
@@ -79,8 +76,8 @@ using namespace cryptonote;
 // arbitrary, used to generate different hashes from the same input
 #define CHACHA8_KEY_TAIL 0x8c
 
-#define UNSIGNED_TX_PREFIX "Monero unsigned tx set\002"
-#define SIGNED_TX_PREFIX "Monero signed tx set\002"
+#define UNSIGNED_TX_PREFIX "Monero unsigned tx set\003"
+#define SIGNED_TX_PREFIX "Monero signed tx set\003"
 
 #define RECENT_OUTPUT_RATIO (0.25) // 25% of outputs are from the recent zone
 #define RECENT_OUTPUT_ZONE (5 * 86400) // last 5 days are the recent zone
@@ -174,9 +171,7 @@ boost::optional<tools::password_container> get_password(const boost::program_opt
 
   if (command_line::has_arg(vm, opts.password))
   {
-    tools::password_container pwd(false);
-    pwd.password(command_line::get_arg(vm, opts.password));
-    return {std::move(pwd)};
+    return tools::password_container{command_line::get_arg(vm, opts.password)};
   }
 
   if (command_line::has_arg(vm, opts.password_file))
@@ -192,19 +187,10 @@ boost::optional<tools::password_container> get_password(const boost::program_opt
 
     // Remove line breaks the user might have inserted
     boost::trim_right_if(password, boost::is_any_of("\r\n"));
-    return {tools::password_container(std::move(password))};
+    return {tools::password_container{std::move(password)}};
   }
 
-  //vm is already part of the password container class.  just need to check vm for an already existing wallet
-  //here need to pass in variable map.  This will indicate if the wallet already exists to the read password function
-  tools::password_container pwd(verify);
-  if (pwd.read_password())
-  {
-    return {std::move(pwd)};
-  }
-
-  tools::fail_msg_writer() << tools::wallet2::tr("failed to read wallet password");
-  return boost::none;
+  return tools::wallet2::password_prompt(verify);
 }
 
 std::unique_ptr<tools::wallet2> generate_from_json(const std::string& json_file, bool testnet, bool restricted)
@@ -431,6 +417,18 @@ void wallet2::init_options(boost::program_options::options_description& desc_par
   command_line::add_arg(desc_params, opts.restricted);
 }
 
+boost::optional<password_container> wallet2::password_prompt(const bool is_new_wallet)
+{
+  auto pwd_container = tools::password_container::prompt(
+    is_new_wallet, (is_new_wallet ? tr("Enter a password for your new wallet") : tr("Wallet password"))
+  );
+  if (!pwd_container)
+  {
+    tools::fail_msg_writer() << tr("failed to read wallet password");
+  }
+  return pwd_container;
+}
+
 std::unique_ptr<wallet2> wallet2::make_from_json(const boost::program_options::variables_map& vm, const std::string& json_file)
 {
   const options opts{};
@@ -444,7 +442,7 @@ std::pair<std::unique_ptr<wallet2>, password_container> wallet2::make_from_file(
   auto pwd = get_password(vm, opts, false);
   if (!pwd)
   {
-    return {nullptr, password_container(false)};
+    return {nullptr, password_container{}};
   }
   auto wallet = make_basic(vm, opts);
   if (wallet)
@@ -460,7 +458,7 @@ std::pair<std::unique_ptr<wallet2>, password_container> wallet2::make_new(const 
   auto pwd = get_password(vm, opts, true);
   if (!pwd)
   {
-    return {nullptr, password_container(false)};
+    return {nullptr, password_container{}};
   }
   return {make_basic(vm, opts), std::move(*pwd)};
 }
@@ -1569,14 +1567,14 @@ bool wallet2::add_address_book_row(const cryptonote::account_public_address &add
   a.m_payment_id = payment_id;
   a.m_description = description;
   
-  int old_size = m_address_book.size();
+  auto old_size = m_address_book.size();
   m_address_book.push_back(a);
   if(m_address_book.size() == old_size+1)
     return true;
   return false;
 }
 
-bool wallet2::delete_address_book_row(int row_id) {
+bool wallet2::delete_address_book_row(std::size_t row_id) {
   if(m_address_book.size() <= row_id)
     return false;
   
@@ -1614,6 +1612,9 @@ void wallet2::refresh(uint64_t start_height, uint64_t & blocks_fetched, bool& re
     // and then fall through to regular refresh processing
   }
 
+  // If stop() is called during fast refresh we don't need to continue
+  if(!m_run.load(std::memory_order_relaxed))
+    return;
   pull_blocks(start_height, blocks_start_height, short_chain_history, blocks, o_indices);
   // always reset start_height to 0 to force short_chain_ history to be used on
   // subsequent pulls in this refresh.
@@ -1633,7 +1634,7 @@ void wallet2::refresh(uint64_t start_height, uint64_t & blocks_fetched, bool& re
       process_blocks(blocks_start_height, blocks, o_indices, added_blocks);
       blocks_fetched += added_blocks;
       pull_thread.join();
-      if(!added_blocks)
+      if(blocks_start_height == next_blocks_start_height)
         break;
 
       // switch to the new blocks from the daemon
@@ -1669,7 +1670,9 @@ void wallet2::refresh(uint64_t start_height, uint64_t & blocks_fetched, bool& re
 
   try
   {
-    update_pool_state();
+    // If stop() is called we don't need to check pending transactions
+    if(m_run.load(std::memory_order_relaxed))
+      update_pool_state();
   }
   catch (...)
   {
@@ -2140,7 +2143,7 @@ void wallet2::rewrite(const std::string& wallet_name, const std::string& passwor
   prepare_file_names(wallet_name);
   boost::system::error_code ignored_ec;
   THROW_WALLET_EXCEPTION_IF(!boost::filesystem::exists(m_keys_file, ignored_ec), error::file_not_found, m_keys_file);
-  bool r = store_keys(m_keys_file, password, false);
+  bool r = store_keys(m_keys_file, password, m_watch_only);
   THROW_WALLET_EXCEPTION_IF(!r, error::file_save_error, m_keys_file);
 }
 /*!
@@ -2234,7 +2237,7 @@ bool wallet2::check_connection(uint32_t *version)
       u.port = m_testnet ? config::testnet::RPC_DEFAULT_PORT : config::RPC_DEFAULT_PORT;
     }
 
-    if (!m_http_client.connect(u.host, std::to_string(u.port), WALLET_RCP_CONNECTION_TIMEOUT))
+    if (!m_http_client.connect(u.host, std::to_string(u.port), 10000))
       return false;
   }
 
@@ -2313,16 +2316,38 @@ void wallet2::load(const std::string& wallet_, const std::string& password)
 
       std::stringstream iss;
       iss << cache_data;
-      boost::archive::binary_iarchive ar(iss);
-      ar >> *this;
+      try {
+        boost::archive::portable_binary_iarchive ar(iss);
+        ar >> *this;
+      }
+      catch (...)
+      {
+        LOG_PRINT_L0("Failed to open portable binary, trying unportable");
+        boost::filesystem::copy_file(m_wallet_file, m_wallet_file + ".unportable", boost::filesystem::copy_option::overwrite_if_exists);
+        iss.str("");
+        iss << cache_data;
+        boost::archive::binary_iarchive ar(iss);
+        ar >> *this;
+      }
     }
     catch (...)
     {
       LOG_PRINT_L1("Failed to load encrypted cache, trying unencrypted");
       std::stringstream iss;
       iss << buf;
-      boost::archive::binary_iarchive ar(iss);
-      ar >> *this;
+      try {
+        boost::archive::portable_binary_iarchive ar(iss);
+        ar >> *this;
+      }
+      catch (...)
+      {
+        LOG_PRINT_L0("Failed to open portable binary, trying unportable");
+        boost::filesystem::copy_file(m_wallet_file, m_wallet_file + ".unportable", boost::filesystem::copy_option::overwrite_if_exists);
+        iss.str("");
+        iss << buf;
+        boost::archive::binary_iarchive ar(iss);
+        ar >> *this;
+      }
     }
     THROW_WALLET_EXCEPTION_IF(
       m_account_public_address.m_spend_public_key != m_account.get_keys().m_account_address.m_spend_public_key ||
@@ -2396,7 +2421,7 @@ void wallet2::store_to(const std::string &path, const std::string &password)
   }
   // preparing wallet data
   std::stringstream oss;
-  boost::archive::binary_oarchive ar(oss);
+  boost::archive::portable_binary_oarchive ar(oss);
   ar << *this;
 
   wallet2::cache_file_data cache_file_data = boost::value_initialized<wallet2::cache_file_data>();
@@ -2833,74 +2858,7 @@ std::vector<std::vector<cryptonote::tx_destination_entry>> split_amounts(
   return retVal;
 }
 } // anonymous namespace
-
-/**
- * @brief gets a monero address from the TXT record of a DNS entry
- *
- * gets the monero address from the TXT record of the DNS entry associated
- * with <url>.  If this lookup fails, or the TXT record does not contain an
- * XMR address in the correct format, returns an empty string.  <dnssec_valid>
- * will be set true or false according to whether or not the DNS query passes
- * DNSSEC validation.
- *
- * @param url the url to look up
- * @param dnssec_valid return-by-reference for DNSSEC status of query
- *
- * @return a monero address (as a string) or an empty string
- */
-std::vector<std::string> wallet2::addresses_from_url(const std::string& url, bool& dnssec_valid)
-{
-  std::vector<std::string> addresses;
-  // get txt records
-  bool dnssec_available, dnssec_isvalid;
-  std::string oa_addr = tools::DNSResolver::instance().get_dns_format_from_oa_address(url);
-  auto records = tools::DNSResolver::instance().get_txt_record(oa_addr, dnssec_available, dnssec_isvalid);
-
-  // TODO: update this to allow for conveying that dnssec was not available
-  if (dnssec_available && dnssec_isvalid)
-  {
-    dnssec_valid = true;
-  }
-  else dnssec_valid = false;
-
-  // for each txt record, try to find a monero address in it.
-  for (auto& rec : records)
-  {
-    std::string addr = address_from_txt_record(rec);
-    if (addr.size())
-    {
-      addresses.push_back(addr);
-    }
-  }
-
-  return addresses;
-}
-
 //----------------------------------------------------------------------------------------------------
-// TODO: parse the string in a less stupid way, probably with regex
-std::string wallet2::address_from_txt_record(const std::string& s)
-{
-  // make sure the txt record has "oa1:xmr" and find it
-  auto pos = s.find("oa1:xmr");
-
-  // search from there to find "recipient_address="
-  pos = s.find("recipient_address=", pos);
-
-  pos += 18; // move past "recipient_address="
-
-  // find the next semicolon
-  auto pos2 = s.find(";", pos);
-  if (pos2 != std::string::npos)
-  {
-    // length of address == 95, we can at least validate that much here
-    if (pos2 - pos == 95)
-    {
-      return s.substr(pos, 95);
-    }
-  }
-  return std::string();
-}
-
 crypto::hash wallet2::get_payment_id(const pending_tx &ptx) const
 {
   std::vector<tx_extra_field> tx_extra_fields;
@@ -2997,14 +2955,19 @@ bool wallet2::save_tx(const std::vector<pending_tx>& ptx_vector, const std::stri
   for (auto &tx: ptx_vector)
     txs.txes.push_back(tx.construction_data);
   txs.transfers = m_transfers;
-  std::string s = obj_to_json_str(txs);
-  if (s.empty())
+  // save as binary
+  std::ostringstream oss;
+  boost::archive::portable_binary_oarchive ar(oss);
+  try
+  {
+    ar << txs;
+  }
+  catch (...)
+  {
     return false;
-  LOG_PRINT_L2("Saving unsigned tx data: " << s);
-  // save as binary as there's no implementation of loading a json_archive
-  if (!::serialization::dump_binary(txs, s))
-    return false;
-  return epee::file_io_utils::save_string_to_file(filename, std::string(UNSIGNED_TX_PREFIX) + s);
+  }
+  LOG_PRINT_L2("Saving unsigned tx data: " << oss.str());
+  return epee::file_io_utils::save_string_to_file(filename, std::string(UNSIGNED_TX_PREFIX) + oss.str());  
 }
 //----------------------------------------------------------------------------------------------------
 bool wallet2::sign_tx(const std::string &unsigned_filename, const std::string &signed_filename, std::vector<wallet2::pending_tx> &txs, std::function<bool(const unsigned_tx_set&)> accept_func)
@@ -3029,7 +2992,14 @@ bool wallet2::sign_tx(const std::string &unsigned_filename, const std::string &s
     return false;
   }
   unsigned_tx_set exported_txs;
-  if (!::serialization::parse_binary(std::string(s.c_str() + magiclen, s.size() - magiclen), exported_txs))
+  s = s.substr(magiclen);
+  try
+  {
+    std::istringstream iss(s);
+    boost::archive::portable_binary_iarchive ar(iss);
+    ar >> exported_txs;
+  }
+  catch (...)  
   {
     LOG_PRINT_L0("Failed to parse data from " << unsigned_filename);
     return false;
@@ -3102,14 +3072,19 @@ bool wallet2::sign_tx(const std::string &unsigned_filename, const std::string &s
     signed_txes.key_images[i] = m_transfers[i].m_key_image;
   }
 
-  s = obj_to_json_str(signed_txes);
-  if (s.empty())
+  // save as binary
+  std::ostringstream oss;
+  boost::archive::portable_binary_oarchive ar(oss);
+  try
+  {
+    ar << signed_txes;
+  }
+  catch(...)
+  {
     return false;
-  LOG_PRINT_L2("Saving signed tx data: " << s);
-  // save as binary as there's no implementation of loading a json_archive
-  if (!::serialization::dump_binary(signed_txes, s))
-    return false;
-  return epee::file_io_utils::save_string_to_file(signed_filename, std::string(SIGNED_TX_PREFIX) + s);
+  }
+  LOG_PRINT_L2("Saving signed tx data: " << oss.str());
+  return epee::file_io_utils::save_string_to_file(signed_filename, std::string(SIGNED_TX_PREFIX) + oss.str());  
 }
 //----------------------------------------------------------------------------------------------------
 bool wallet2::load_tx(const std::string &signed_filename, std::vector<tools::wallet2::pending_tx> &ptx, std::function<bool(const signed_tx_set&)> accept_func)
@@ -3135,7 +3110,14 @@ bool wallet2::load_tx(const std::string &signed_filename, std::vector<tools::wal
     LOG_PRINT_L0("Bad magic from " << signed_filename);
     return false;
   }
-  if (!::serialization::parse_binary(std::string(s.c_str() + magiclen, s.size() - magiclen), signed_txs))
+  s = s.substr(magiclen);
+  try
+  {
+    std::istringstream iss(s);
+    boost::archive::portable_binary_iarchive ar(iss);
+    ar >> signed_txs;
+  }
+  catch (...)
   {
     LOG_PRINT_L0("Failed to parse data from " << signed_filename);
     return false;
@@ -3499,6 +3481,23 @@ void wallet2::get_outs(std::vector<std::vector<entry>> &outs, const std::list<si
       outs.push_back(std::vector<entry>());
       outs.back().reserve(fake_outputs_count + 1);
       const rct::key mask = td.is_rct() ? rct::commit(td.amount(), td.m_mask) : rct::zeroCommit(td.amount());
+
+      // make sure the real outputs we asked for are really included, along
+      // with the correct key and mask: this guards against an active attack
+      // where the node sends dummy data for all outputs, and we then send
+      // the real one, which the node can then tell from the fake outputs,
+      // as it has different data than the dummy data it had sent earlier
+      bool real_out_found = false;
+      for (size_t n = 0; n < requested_outputs_count; ++n)
+      {
+        size_t i = base + n;
+        if (req.outputs[i].index == td.m_global_output_index)
+          if (daemon_resp.outs[i].key == boost::get<txout_to_key>(td.m_tx.vout[td.m_internal_output_index].target).key)
+            if (daemon_resp.outs[i].mask == mask)
+              real_out_found = true;
+      }
+      THROW_WALLET_EXCEPTION_IF(!real_out_found, error::wallet_internal_error,
+          "Daemon response did not include the requested real output");
 
       // pick real out first (it will be sorted when done)
       outs.back().push_back(std::make_tuple(td.m_global_output_index, boost::get<txout_to_key>(td.m_tx.vout[td.m_internal_output_index].target).key, mask));

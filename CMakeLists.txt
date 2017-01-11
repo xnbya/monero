@@ -149,10 +149,13 @@ message(STATUS "Building for a ${ARCH_WIDTH}-bit system")
 
 # Check if we're on FreeBSD so we can exclude the local miniupnpc (it should be installed from ports instead)
 # CMAKE_SYSTEM_NAME checks are commonly known, but specifically taken from libsdl's CMakeLists
-if(CMAKE_SYSTEM_NAME MATCHES "kFreeBSD.*")
+if(CMAKE_SYSTEM_NAME MATCHES "kFreeBSD.*|FreeBSD")
   set(FREEBSD TRUE)
-elseif(CMAKE_SYSTEM_NAME MATCHES "DragonFly.*|FreeBSD")
-  set(FREEBSD TRUE)
+endif()
+
+# Check if we're on DragonFly BSD. See the README.md for build instructions.
+if(CMAKE_SYSTEM_NAME MATCHES "DragonFly.*")
+  set(DRAGONFLY TRUE)
 endif()
 
 # Check if we're on OpenBSD. See the README.md for build instructions.
@@ -171,6 +174,9 @@ include_directories(src contrib/epee/include external "${CMAKE_BINARY_DIR}/versi
 
 if(APPLE)
   include_directories(SYSTEM /usr/include/malloc)
+  if(POLICY CMP0042)
+    cmake_policy(SET CMP0042 NEW)
+  endif()
 endif()
 
 if(MSVC OR MINGW)
@@ -372,6 +378,13 @@ else()
     set(STATIC_ASSERT_FLAG "-Dstatic_assert=_Static_assert")
   endif()
 
+  try_compile(STATIC_ASSERT_CPP_RES "${CMAKE_CURRENT_BINARY_DIR}/static-assert" "${CMAKE_CURRENT_SOURCE_DIR}/cmake/test-static-assert.cpp" COMPILE_DEFINITIONS "-std=c++11")
+  if(STATIC_ASSERT_CPP_RES)
+    set(STATIC_ASSERT_CPP_FLAG "")
+  else()
+    set(STATIC_ASSERT_CPP_FLAG "-Dstatic_assert=_Static_assert")
+  endif()
+
   option(COVERAGE "Enable profiling for test coverage report" 0)
 
   if(COVERAGE)
@@ -407,7 +420,7 @@ else()
   endif()
 
   set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=c11 -D_GNU_SOURCE ${MINGW_FLAG} ${STATIC_ASSERT_FLAG} ${WARNINGS} ${C_WARNINGS} ${ARCH_FLAG} ${COVERAGE_FLAGS} ${PIC_FLAG}")
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -D_GNU_SOURCE ${MINGW_FLAG} ${STATIC_ASSERT_FLAG} ${WARNINGS} ${CXX_WARNINGS} ${ARCH_FLAG} ${COVERAGE_FLAGS} ${PIC_FLAG}")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -D_GNU_SOURCE ${MINGW_FLAG} ${STATIC_ASSERT_CPP_FLAG} ${WARNINGS} ${CXX_WARNINGS} ${ARCH_FLAG} ${COVERAGE_FLAGS} ${PIC_FLAG}")
 
   # With GCC 6.1.1 the compiled binary malfunctions due to aliasing. Until that
   # is fixed in the code (Issue #847), force compiler to be conservative.
@@ -491,6 +504,13 @@ else()
 
   endif(ARM)
 
+  if(ANDROID AND NOT BUILD_GUI_DEPS STREQUAL "ON")
+    #From Android 5: "only position independent executables (PIE) are supported" 
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fPIE")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fPIE")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_CXX_FLAGS} -fPIE -pie")
+  endif()
+
   if(APPLE)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DGTEST_HAS_TR1_TUPLE=0")
   endif()
@@ -519,7 +539,7 @@ else()
       set(RELEASE_FLAGS "${RELEASE_FLAGS} -ffat-lto-objects")
     endif()
     # Since gcc 4.9 the LTO format is non-standard (slim), so we need the gcc-specific ar and ranlib binaries
-    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND NOT (CMAKE_CXX_COMPILER_VERSION VERSION_LESS 4.9.0) AND NOT OPENBSD)
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND NOT (CMAKE_CXX_COMPILER_VERSION VERSION_LESS 4.9.0) AND NOT OPENBSD AND NOT DRAGONFLY)
       # When invoking cmake on distributions on which gcc's binaries are prefixed
       # with an arch-specific triplet, the user must specify -DCHOST=<prefix>
       if (DEFINED CHOST)
@@ -544,7 +564,7 @@ else()
       # On Windows, this is as close to fully-static as we get:
       # this leaves only deps on /c/Windows/system32/*.dll
       set(STATIC_FLAGS "-static")
-    elseif (NOT (APPLE OR FREEBSD OR OPENBSD))
+    elseif (NOT (APPLE OR FREEBSD OR OPENBSD OR DRAGONFLY))
       # On Linux, we don't support fully static build, but these can be static
       set(STATIC_FLAGS "-static-libgcc -static-libstdc++")
     endif()
@@ -577,8 +597,11 @@ endif()
 include_directories(SYSTEM ${Boost_INCLUDE_DIRS})
 if(MINGW)
   set(EXTRA_LIBRARIES mswsock;ws2_32;iphlpapi)
-elseif(APPLE OR FREEBSD OR OPENBSD)
+elseif(APPLE OR FREEBSD OR OPENBSD OR ANDROID)
   set(EXTRA_LIBRARIES "")
+elseif(DRAGONFLY)
+  find_library(COMPAT compat)
+  set(EXTRA_LIBRARIES ${COMPAT})
 elseif(NOT MSVC)
   find_library(RT rt)
   set(EXTRA_LIBRARIES ${RT})

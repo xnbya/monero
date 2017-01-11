@@ -49,7 +49,7 @@ namespace cryptonote
 // advance which version they will stop working with
 // Don't go over 32767 for any of these
 #define CORE_RPC_VERSION_MAJOR 1
-#define CORE_RPC_VERSION_MINOR 0
+#define CORE_RPC_VERSION_MINOR 3
 #define CORE_RPC_VERSION (((CORE_RPC_VERSION_MAJOR)<<16)|(CORE_RPC_VERSION_MINOR))
 
   struct COMMAND_RPC_GET_HEIGHT
@@ -512,6 +512,7 @@ namespace cryptonote
       bool testnet;
       std::string top_block_hash;
       uint64_t cumulative_difficulty;
+      uint64_t block_size_limit;
 
       BEGIN_KV_SERIALIZE_MAP()
         KV_SERIALIZE(status)
@@ -529,6 +530,7 @@ namespace cryptonote
         KV_SERIALIZE(testnet)
         KV_SERIALIZE(top_block_hash)
         KV_SERIALIZE(cumulative_difficulty)
+        KV_SERIALIZE(block_size_limit)
       END_KV_SERIALIZE_MAP()
     };
   };
@@ -693,6 +695,7 @@ namespace cryptonote
       std::string hash;
       difficulty_type difficulty;
       uint64_t reward;
+      uint64_t block_size;
       
       BEGIN_KV_SERIALIZE_MAP()
         KV_SERIALIZE(major_version)
@@ -706,6 +709,7 @@ namespace cryptonote
         KV_SERIALIZE(hash)
         KV_SERIALIZE(difficulty)
         KV_SERIALIZE(reward)
+        KV_SERIALIZE(block_size)
       END_KV_SERIALIZE_MAP()
   };
 
@@ -919,7 +923,7 @@ namespace cryptonote
       KV_SERIALIZE(last_failed_id_hash)
       KV_SERIALIZE(receive_time)
       KV_SERIALIZE(relayed)
-      KV_SERIALIZE(last_failed_id_hash)
+      KV_SERIALIZE(last_relayed_time)
     END_KV_SERIALIZE_MAP()
   };
 
@@ -1333,6 +1337,41 @@ namespace cryptonote
       BEGIN_KV_SERIALIZE_MAP()
         KV_SERIALIZE(status)
         KV_SERIALIZE(fee)
+      END_KV_SERIALIZE_MAP()
+    };
+  };
+
+  struct COMMAND_RPC_GET_ALTERNATE_CHAINS
+  {
+    struct request
+    {
+      BEGIN_KV_SERIALIZE_MAP()
+      END_KV_SERIALIZE_MAP()
+    };
+
+    struct chain_info
+    {
+      std::string block_hash;
+      uint64_t height;
+      uint64_t length;
+      uint64_t difficulty;
+
+      BEGIN_KV_SERIALIZE_MAP()
+        KV_SERIALIZE(block_hash)
+        KV_SERIALIZE(height)
+        KV_SERIALIZE(length)
+        KV_SERIALIZE(difficulty)
+      END_KV_SERIALIZE_MAP()
+    };
+
+    struct response
+    {
+      std::string status;
+      std::list<chain_info> chains;
+
+      BEGIN_KV_SERIALIZE_MAP()
+        KV_SERIALIZE(status)
+        KV_SERIALIZE(chains)
       END_KV_SERIALIZE_MAP()
     };
   };

@@ -137,14 +137,14 @@ struct TransactionHistory
  */
 struct AddressBookRow {
 public:
-    AddressBookRow(int _rowId, const std::string &_address, const std::string &_paymentId, const std::string &_description):
+    AddressBookRow(std::size_t _rowId, const std::string &_address, const std::string &_paymentId, const std::string &_description):
         m_rowId(_rowId),
         m_address(_address),
         m_paymentId(_paymentId), 
         m_description(_description) {}
  
 private:
-    int m_rowId;
+    std::size_t m_rowId;
     std::string m_address;
     std::string m_paymentId;
     std::string m_description;
@@ -153,7 +153,7 @@ public:
     std::string getAddress() const {return m_address;} 
     std::string getDescription() const {return m_description;} 
     std::string getPaymentId() const {return m_paymentId;} 
-    int getRowId() const {return m_rowId;} 
+    std::size_t getRowId() const {return m_rowId;}
 };
 
 /**
@@ -171,10 +171,11 @@ struct AddressBook
     virtual ~AddressBook() = 0;
     virtual std::vector<AddressBookRow*> getAll() const = 0;
     virtual bool addRow(const std::string &dst_addr , const std::string &payment_id, const std::string &description) = 0;  
-    virtual bool deleteRow(int rowId) = 0;  
+    virtual bool deleteRow(std::size_t rowId) = 0;
     virtual void refresh() = 0;  
     virtual std::string errorString() const = 0;
     virtual int errorCode() const = 0;
+    virtual int lookupPaymentID(const std::string &payment_id) const = 0;
 };
 
 struct WalletListener
@@ -364,6 +365,15 @@ struct Wallet
     static std::string paymentIdFromAddress(const std::string &str, bool testnet);
     static uint64_t maximumAllowedAmount();
 
+   /**
+    * @brief StartRefresh - Start/resume refresh thread (refresh every 10 seconds)
+    */
+    virtual void startRefresh() = 0;
+   /**
+    * @brief pauseRefresh - pause refresh thread
+    */
+    virtual void pauseRefresh() = 0;
+
     /**
      * @brief refresh - refreshes the wallet, updating transactions from daemon
      * @return - true if refreshed successfully;
@@ -459,6 +469,8 @@ struct Wallet
      * \return true if the signature verified, false otherwise
      */
     virtual bool verifySignedMessage(const std::string &message, const std::string &addres, const std::string &signature) const = 0;
+
+    virtual bool parse_uri(const std::string &uri, std::string &address, std::string &payment_id, uint64_t &amount, std::string &tx_description, std::string &recipient_name, std::vector<std::string> &unknown_parameters, std::string &error) = 0;
 };
 
 /**
@@ -552,6 +564,15 @@ struct WalletManager
 
     //! returns current mining hash rate (0 if not mining)
     virtual double miningHashRate() const = 0;
+
+    //! returns current hard fork info
+    virtual void hardForkInfo(uint8_t &version, uint64_t &earliest_height) const = 0;
+
+    //! returns current block target
+    virtual uint64_t blockTarget() const = 0;
+
+    //! resolves an OpenAlias address to a monero address
+    virtual std::string resolveOpenAlias(const std::string &address, bool &dnssec_valid) const = 0;
 };
 
 

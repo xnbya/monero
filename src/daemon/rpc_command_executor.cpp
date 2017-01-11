@@ -473,8 +473,9 @@ bool t_rpc_command_executor::print_blockchain_info(uint64_t start_block_index, u
     if (!first)
       std::cout << std::endl;
     std::cout
+      << "height: " << header.height << ", timestamp: " << header.timestamp << ", difficulty: " << header.difficulty
+      << ", size: " << header.block_size << std::endl
       << "major version: " << (unsigned)header.major_version << ", minor version: " << (unsigned)header.minor_version << std::endl
-      << "height: " << header.height << ", timestamp: " << header.timestamp << ", difficulty: " << header.difficulty << std::endl
       << "block id: " << header.hash << ", previous block id: " << header.prev_hash << std::endl
       << "difficulty: " << header.difficulty << ", nonce " << header.nonce << ", reward " << cryptonote::print_money(header.reward) << std::endl;
     first = false;
@@ -1364,6 +1365,39 @@ bool t_rpc_command_executor::print_coinbase_tx_sum(uint64_t height, uint64_t cou
     << cryptonote::print_money(res.emission_amount + res.fee_amount) << " "
     << "consisting of " << cryptonote::print_money(res.emission_amount) 
     << " in emissions, and " << cryptonote::print_money(res.fee_amount) << " in fees";
+  return true;
+}
+
+bool t_rpc_command_executor::alt_chain_info()
+{
+  cryptonote::COMMAND_RPC_GET_ALTERNATE_CHAINS::request req;
+  cryptonote::COMMAND_RPC_GET_ALTERNATE_CHAINS::response res;
+  epee::json_rpc::error error_resp;
+
+  std::string fail_message = "Unsuccessful";
+
+  if (m_is_rpc)
+  {
+    if (!m_rpc_client->json_rpc_request(req, res, "get_alternate_chains", fail_message.c_str()))
+    {
+      return true;
+    }
+  }
+  else
+  {
+    if (!m_rpc_server->on_get_alternate_chains(req, res, error_resp))
+    {
+      tools::fail_msg_writer() << fail_message.c_str();
+      return true;
+    }
+  }
+
+  tools::msg_writer() << boost::lexical_cast<std::string>(res.chains.size()) << " alternate chains found:";
+  for (const auto chain: res.chains)
+  {
+    tools::msg_writer() << chain.length << " blocks long, branching at height " << (chain.height - chain.length + 1)
+        << ", difficulty " << chain.difficulty << ": " << chain.block_hash;
+  }
   return true;
 }
 

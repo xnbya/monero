@@ -31,7 +31,6 @@
 #pragma once
 
 #include <memory>
-#include <boost/archive/binary_iarchive.hpp>
 
 #include <boost/program_options/options_description.hpp>
 #include <boost/program_options/variables_map.hpp>
@@ -58,6 +57,8 @@
 
 #include <iostream>
 #define WALLET_RCP_CONNECTION_TIMEOUT                          200000
+
+class Serialization_portability_wallet_Test;
 
 namespace tools
 {
@@ -87,6 +88,7 @@ namespace tools
 
   class wallet2
   {
+    friend class ::Serialization_portability_wallet_Test;
   public:
     enum RefreshType {
       RefreshFull,
@@ -103,6 +105,9 @@ namespace tools
 
     static bool has_testnet_option(const boost::program_options::variables_map& vm);
     static void init_options(boost::program_options::options_description& desc_params);
+
+    //! \return Password retrieved from prompt. Logs error on failure.
+    static boost::optional<password_container> password_prompt(const bool is_new_wallet);
 
     //! Uses stdin and stdout. Returns a wallet2 if no errors.
     static std::unique_ptr<wallet2> make_from_json(const boost::program_options::variables_map& vm, const std::string& json_file);
@@ -199,17 +204,6 @@ namespace tools
       uint64_t unlock_time;
       bool use_rct;
       std::vector<cryptonote::tx_destination_entry> dests; // original setup, does not include change
-
-      BEGIN_SERIALIZE_OBJECT()
-        FIELD(sources)
-        FIELD(change_dts)
-        FIELD(splitted_dsts)
-        FIELD(selected_transfers)
-        FIELD(extra)
-        VARINT_FIELD(unlock_time)
-        FIELD(use_rct)
-        FIELD(dests)
-      END_SERIALIZE()
     };
 
     typedef std::vector<transfer_details> transfer_container;
@@ -230,39 +224,18 @@ namespace tools
       std::vector<cryptonote::tx_destination_entry> dests;
 
       tx_construction_data construction_data;
-
-      BEGIN_SERIALIZE_OBJECT()
-        FIELD(tx)
-        VARINT_FIELD(dust)
-        VARINT_FIELD(fee)
-        FIELD(dust_added_to_fee)
-        FIELD(change_dts)
-        FIELD(selected_transfers)
-        FIELD(key_images)
-        FIELD(tx_key)
-        FIELD(dests)
-        FIELD(construction_data)
-      END_SERIALIZE()
     };
 
     struct unsigned_tx_set
     {
       std::vector<tx_construction_data> txes;
       wallet2::transfer_container transfers;
-      BEGIN_SERIALIZE_OBJECT()
-        FIELD(txes)
-        FIELD(transfers)
-      END_SERIALIZE()
     };
 
     struct signed_tx_set
     {
       std::vector<pending_tx> ptx;
       std::vector<crypto::key_image> key_images;
-      BEGIN_SERIALIZE_OBJECT()
-        FIELD(ptx)
-        FIELD(key_images)
-      END_SERIALIZE()
     };
 
     struct keys_file_data
@@ -501,10 +474,6 @@ namespace tools
     static bool parse_short_payment_id(const std::string& payment_id_str, crypto::hash8& payment_id);
     static bool parse_payment_id(const std::string& payment_id_str, crypto::hash& payment_id);
 
-    static std::vector<std::string> addresses_from_url(const std::string& url, bool& dnssec_valid);
-
-    static std::string address_from_txt_record(const std::string& s);
-
     bool always_confirm_transfers() const { return m_always_confirm_transfers; }
     void always_confirm_transfers(bool always) { m_always_confirm_transfers = always; }
     bool store_tx_info() const { return m_store_tx_info; }
@@ -525,7 +494,7 @@ namespace tools
     */
     std::vector<address_book_row> get_address_book() const { return m_address_book; }
     bool add_address_book_row(const cryptonote::account_public_address &address, const crypto::hash &payment_id, const std::string &description);
-    bool delete_address_book_row(int row_id);
+    bool delete_address_book_row(std::size_t row_id);
         
     uint64_t get_num_rct_outputs();
     const transfer_details &get_transfer_details(size_t idx) const;
@@ -670,17 +639,21 @@ BOOST_CLASS_VERSION(tools::wallet2::payment_details, 1)
 BOOST_CLASS_VERSION(tools::wallet2::unconfirmed_transfer_details, 6)
 BOOST_CLASS_VERSION(tools::wallet2::confirmed_transfer_details, 3)
 BOOST_CLASS_VERSION(tools::wallet2::address_book_row, 16)    
+BOOST_CLASS_VERSION(tools::wallet2::unsigned_tx_set, 0)
+BOOST_CLASS_VERSION(tools::wallet2::signed_tx_set, 0)
+BOOST_CLASS_VERSION(tools::wallet2::tx_construction_data, 0)
+BOOST_CLASS_VERSION(tools::wallet2::pending_tx, 0)
 
 namespace boost
 {
   namespace serialization
   {
     template <class Archive>
-    inline void initialize_transfer_details(Archive &a, tools::wallet2::transfer_details &x, const boost::serialization::version_type ver)
+    inline typename std::enable_if<!Archive::is_loading::value, void>::type initialize_transfer_details(Archive &a, tools::wallet2::transfer_details &x, const boost::serialization::version_type ver)
     {
     }
-    template<>
-    inline void initialize_transfer_details(boost::archive::binary_iarchive &a, tools::wallet2::transfer_details &x, const boost::serialization::version_type ver)
+    template <class Archive>
+    inline typename std::enable_if<Archive::is_loading::value, void>::type initialize_transfer_details(Archive &a, tools::wallet2::transfer_details &x, const boost::serialization::version_type ver)
     {
         if (ver < 1)
         {
@@ -866,6 +839,48 @@ namespace boost
       a & x.m_address;
       a & x.m_payment_id;
       a & x.m_description;
+    }
+
+    template <class Archive>
+    inline void serialize(Archive &a, tools::wallet2::unsigned_tx_set &x, const boost::serialization::version_type ver)
+    {
+      a & x.txes;
+      a & x.transfers;
+    }
+
+    template <class Archive>
+    inline void serialize(Archive &a, tools::wallet2::signed_tx_set &x, const boost::serialization::version_type ver)
+    {
+      a & x.ptx;
+      a & x.key_images;
+    }
+
+    template <class Archive>
+    inline void serialize(Archive &a, tools::wallet2::tx_construction_data &x, const boost::serialization::version_type ver)
+    {
+      a & x.sources;
+      a & x.change_dts;
+      a & x.splitted_dsts;
+      a & x.selected_transfers;
+      a & x.extra;
+      a & x.unlock_time;
+      a & x.use_rct;
+      a & x.dests;
+    }
+
+    template <class Archive>
+    inline void serialize(Archive &a, tools::wallet2::pending_tx &x, const boost::serialization::version_type ver)
+    {
+      a & x.tx;
+      a & x.dust;
+      a & x.fee;
+      a & x.dust_added_to_fee;
+      a & x.change_dts;
+      a & x.selected_transfers;
+      a & x.key_images;
+      a & x.tx_key;
+      a & x.dests;
+      a & x.construction_data;
     }
   }
 }
