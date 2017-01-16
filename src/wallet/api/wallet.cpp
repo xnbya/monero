@@ -54,6 +54,8 @@ namespace {
     static const int    MAX_REFRESH_INTERVAL_MILLIS = 1000 * 60 * 1;
     // Default refresh interval when connected to remote node
     static const int    DEFAULT_REMOTE_NODE_REFRESH_INTERVAL_MILLIS = 1000 * 10;
+    // Connection timeout 30 sec
+    static const int    DEFAULT_CONNECTION_TIMEOUT_MILLIS = 1000 * 30;
 }
 
 struct Wallet2CallbackImpl : public tools::i_wallet2_callback
@@ -83,7 +85,7 @@ struct Wallet2CallbackImpl : public tools::i_wallet2_callback
 
     virtual void on_new_block(uint64_t height, const cryptonote::block& block)
     {
-        LOG_PRINT_L3(__FUNCTION__ << ": new block. height: " << height);
+        //LOG_PRINT_L3(__FUNCTION__ << ": new block. height: " << height);
 
         if (m_listener) {
             m_listener->newBlock(height);
@@ -662,25 +664,68 @@ UnsignedTransaction *WalletImpl::loadUnsignedTx(const std::string &unsigned_file
 
 bool WalletImpl::submitTransaction(const string &fileName) {
   clearStatus();
-  PendingTransactionImpl * transaction = new PendingTransactionImpl(*this);
+  std::unique_ptr<PendingTransactionImpl> transaction(new PendingTransactionImpl(*this));
 
-// bool r = m_wallet->load_tx(fileName, transaction->m_pending_tx, [&](const tools::wallet2::signed_tx_set &tx){ return accept_loaded_tx(tx); });
   bool r = m_wallet->load_tx(fileName, transaction->m_pending_tx);
   if (!r) {
     m_errorString = tr("Failed to load transaction from file");
     m_status = Status_Ok;
-    delete transaction;
     return false;
   }
   
   if(!transaction->commit()) {
     m_errorString = transaction->m_errorString;
     m_status = Status_Error;
-    delete transaction;
     return false;
   }
 
-  delete transaction;
+  return true;
+}
+
+bool WalletImpl::exportKeyImages(const string &filename) 
+{
+  if (m_wallet->watch_only())
+  {
+    m_errorString = tr("Wallet is view only");
+    m_status = Status_Error;
+    return false;
+  }
+  
+  try
+  {
+    if (!m_wallet->export_key_images(filename))
+    {
+      m_errorString = tr("failed to save file ") + filename;
+      m_status = Status_Error;
+      return false;
+    }
+  }
+  catch (std::exception &e)
+  {
+    LOG_ERROR("Error exporting key images: " << e.what());
+    m_errorString = e.what();
+    m_status = Status_Error;
+    return false;
+  }
+  return true;
+}
+
+bool WalletImpl::importKeyImages(const string &filename)
+{
+  try
+  {
+    uint64_t spent = 0, unspent = 0;
+    uint64_t height = m_wallet->import_key_images(filename, spent, unspent);
+    LOG_PRINT_L2("Signed key images imported to height " << height << ", "
+        << print_money(spent) << " spent, " << print_money(unspent) << " unspent");
+  }
+  catch (const std::exception &e)
+  {
+    LOG_ERROR("Error exporting key images: " << e.what());
+    m_errorString = string(tr("Failed to import key images: ")) + e.what();
+    m_status = Status_Error;
+    return false;
+  }
 
   return true;
 }
@@ -1043,7 +1088,7 @@ bool WalletImpl::verifySignedMessage(const std::string &message, const std::stri
 
 bool WalletImpl::connectToDaemon()
 {
-    bool result = m_wallet->check_connection();
+    bool result = m_wallet->check_connection(NULL, DEFAULT_CONNECTION_TIMEOUT_MILLIS);
     m_status = result ? Status_Ok : Status_Error;
     if (!result) {
         m_errorString = "Error connecting to daemon at " + m_wallet->get_daemon_address();
@@ -1056,7 +1101,7 @@ bool WalletImpl::connectToDaemon()
 Wallet::ConnectionStatus WalletImpl::connected() const
 {
     uint32_t version = 0;
-    m_is_connected = m_wallet->check_connection(&version);
+    m_is_connected = m_wallet->check_connection(&version, DEFAULT_CONNECTION_TIMEOUT_MILLIS);
     if (!m_is_connected)
         return Wallet::ConnectionStatus_Disconnected;
     if ((version >> 16) != CORE_RPC_VERSION_MAJOR)
@@ -1217,6 +1262,24 @@ bool WalletImpl::parse_uri(const std::string &uri, std::string &address, std::st
     return m_wallet->parse_uri(uri, address, payment_id, amount, tx_description, recipient_name, unknown_parameters, error);
 }
 
+bool WalletImpl::rescanSpent()
+{
+  clearStatus();
+  if (!trustedDaemon()) {
+    m_status = Status_Error;
+    m_errorString = tr("Rescan spent can only be used with a trusted daemon");
+    return false;
+  }
+  try {
+      m_wallet->rescan_spent();
+  } catch (const std::exception &e) {
+      LOG_ERROR(__FUNCTION__ << " error: " << e.what());
+      m_status = Status_Error;
+      m_errorString = e.what();
+      return false;
+  }
+  return true;
+}
 } // namespace
 
 namespace Bitmonero = Monero;

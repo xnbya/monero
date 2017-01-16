@@ -190,6 +190,36 @@ namespace cryptonote
     return true;
   }
   //------------------------------------------------------------------------------------------------------------------------------
+  bool core_rpc_server::on_get_blocks_by_height(const COMMAND_RPC_GET_BLOCKS_BY_HEIGHT::request& req, COMMAND_RPC_GET_BLOCKS_BY_HEIGHT::response& res)
+  {
+    CHECK_CORE_BUSY();
+    res.status = "Failed";
+    res.blocks.clear();
+    res.blocks.reserve(req.heights.size());
+    for (uint64_t height : req.heights)
+    {
+      block blk;
+      try
+      {
+        blk = m_core.get_blockchain_storage().get_db().get_block_from_height(height);
+      }
+      catch (...)
+      {
+        res.status = "Error retrieving block at height " + height;
+        return true;
+      }
+      std::list<transaction> txs;
+      std::list<crypto::hash> missed_txs;
+      m_core.get_transactions(blk.tx_hashes, txs, missed_txs);
+      res.blocks.resize(res.blocks.size() + 1);
+      res.blocks.back().block = block_to_blob(blk);
+      for (auto& tx : txs)
+        res.blocks.back().txs.push_back(tx_to_blob(tx));
+    }
+    res.status = CORE_RPC_STATUS_OK;
+    return true;
+  }
+  //------------------------------------------------------------------------------------------------------------------------------
   bool core_rpc_server::on_get_hashes(const COMMAND_RPC_GET_HASHES_FAST::request& req, COMMAND_RPC_GET_HASHES_FAST::response& res)
   {
     CHECK_CORE_BUSY();
@@ -528,7 +558,7 @@ namespace cryptonote
 
     cryptonote_connection_context fake_context = AUTO_VAL_INIT(fake_context);
     tx_verification_context tvc = AUTO_VAL_INIT(tvc);
-    if(!m_core.handle_incoming_tx(tx_blob, tvc, false, false) || tvc.m_verifivation_failed)
+    if(!m_core.handle_incoming_tx(tx_blob, tvc, false, false, req.do_not_relay) || tvc.m_verifivation_failed)
     {
       if (tvc.m_verifivation_failed)
       {
@@ -558,7 +588,7 @@ namespace cryptonote
       return true;
     }
 
-    if(!tvc.m_should_be_relayed || req.do_not_relay)
+    if(!tvc.m_should_be_relayed)
     {
       LOG_PRINT_L0("[on_send_raw_tx]: tx accepted, but not relayed");
       res.reason = "Not relayed";
@@ -678,17 +708,20 @@ namespace cryptonote
   //------------------------------------------------------------------------------------------------------------------------------
   bool core_rpc_server::on_set_log_level(const COMMAND_RPC_SET_LOG_LEVEL::request& req, COMMAND_RPC_SET_LOG_LEVEL::response& res)
   {
-    if (req.level < LOG_LEVEL_MIN || req.level > LOG_LEVEL_MAX)
+    if (req.level < 0 || req.level > 4)
     {
       res.status = "Error: log level not valid";
+      return true;
     }
-    else
-    {
-      epee::log_space::log_singletone::get_set_log_detalisation_level(true, req.level);
-      int otshell_utils_log_level = 100 - (req.level * 20);
-      gCurrentLogger.setDebugLevel(otshell_utils_log_level);
-      res.status = CORE_RPC_STATUS_OK;
-    }
+    mlog_set_log_level(req.level);
+    res.status = CORE_RPC_STATUS_OK;
+    return true;
+  }
+  //------------------------------------------------------------------------------------------------------------------------------
+  bool core_rpc_server::on_set_log_categories(const COMMAND_RPC_SET_LOG_CATEGORIES::request& req, COMMAND_RPC_SET_LOG_CATEGORIES::response& res)
+  {
+    mlog_set_categories(req.categories.c_str());
+    res.status = CORE_RPC_STATUS_OK;
     return true;
   }
   //------------------------------------------------------------------------------------------------------------------------------
@@ -896,6 +929,7 @@ namespace cryptonote
     response.difficulty = m_core.get_blockchain_storage().block_difficulty(height);
     response.reward = get_block_reward(blk);
     response.block_size = m_core.get_blockchain_storage().get_db().get_block_size(height);
+    response.num_txes = blk.tx_hashes.size();
     return true;
   }
   //------------------------------------------------------------------------------------------------------------------------------

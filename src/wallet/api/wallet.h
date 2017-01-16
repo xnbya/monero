@@ -93,7 +93,7 @@ public:
     void setRefreshFromBlockHeight(uint64_t refresh_from_block_height);
     void setRecoveringFromSeed(bool recoveringFromSeed);
     bool watchOnly() const;
-
+    bool rescanSpent();
 
 
     PendingTransaction * createTransaction(const std::string &dst_addr, const std::string &payment_id,
@@ -102,6 +102,8 @@ public:
     virtual PendingTransaction * createSweepUnmixableTransaction();
     bool submitTransaction(const std::string &fileName);
     virtual UnsignedTransaction * loadUnsignedTx(const std::string &unsigned_filename);
+    bool exportKeyImages(const std::string &filename);
+    bool importKeyImages(const std::string &filename);
 
     virtual void disposeTransaction(PendingTransaction * t);
     virtual TransactionHistory * history() const;
@@ -127,11 +129,12 @@ private:
     bool isNewWallet() const;
     void doInit(const std::string &daemon_address, uint64_t upper_transaction_size_limit);
 
+
 private:
     friend class PendingTransactionImpl;
     friend class UnsignedTransactionImpl;    
     friend class TransactionHistoryImpl;
-    friend class Wallet2CallbackImpl;
+    friend struct Wallet2CallbackImpl;
     friend class AddressBookImpl;
 
     tools::wallet2 * m_wallet;

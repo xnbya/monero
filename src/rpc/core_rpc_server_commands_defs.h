@@ -49,8 +49,9 @@ namespace cryptonote
 // advance which version they will stop working with
 // Don't go over 32767 for any of these
 #define CORE_RPC_VERSION_MAJOR 1
-#define CORE_RPC_VERSION_MINOR 4
-#define CORE_RPC_VERSION (((CORE_RPC_VERSION_MAJOR)<<16)|(CORE_RPC_VERSION_MINOR))
+#define CORE_RPC_VERSION_MINOR 6
+#define MAKE_CORE_RPC_VERSION(major,minor) (((major)<<16)|(minor))
+#define CORE_RPC_VERSION MAKE_CORE_RPC_VERSION(CORE_RPC_VERSION_MAJOR, CORE_RPC_VERSION_MINOR)
 
   struct COMMAND_RPC_GET_HEIGHT
   {
@@ -117,6 +118,28 @@ namespace cryptonote
         KV_SERIALIZE(current_height)
         KV_SERIALIZE(status)
         KV_SERIALIZE(output_indices)
+      END_KV_SERIALIZE_MAP()
+    };
+  };
+
+  struct COMMAND_RPC_GET_BLOCKS_BY_HEIGHT
+  {
+    struct request
+    {
+      std::vector<uint64_t> heights;
+      BEGIN_KV_SERIALIZE_MAP()
+        KV_SERIALIZE(heights)
+      END_KV_SERIALIZE_MAP()
+    };
+
+    struct response
+    {
+      std::vector<block_complete_entry> blocks;
+      std::string status;
+
+      BEGIN_KV_SERIALIZE_MAP()
+        KV_SERIALIZE(blocks)
+        KV_SERIALIZE(status)
       END_KV_SERIALIZE_MAP()
     };
   };
@@ -706,6 +729,7 @@ namespace cryptonote
       difficulty_type difficulty;
       uint64_t reward;
       uint64_t block_size;
+      uint64_t num_txes;
       
       BEGIN_KV_SERIALIZE_MAP()
         KV_SERIALIZE(major_version)
@@ -720,6 +744,7 @@ namespace cryptonote
         KV_SERIALIZE(difficulty)
         KV_SERIALIZE(reward)
         KV_SERIALIZE(block_size)
+        KV_SERIALIZE(num_txes)
       END_KV_SERIALIZE_MAP()
   };
 
@@ -906,6 +931,26 @@ namespace cryptonote
     };
   };
 
+  struct COMMAND_RPC_SET_LOG_CATEGORIES
+  {
+    struct request
+    {
+      std::string categories;
+
+      BEGIN_KV_SERIALIZE_MAP()
+        KV_SERIALIZE(categories)
+      END_KV_SERIALIZE_MAP()
+    };
+
+    struct response
+    {
+      std::string status;
+      BEGIN_KV_SERIALIZE_MAP()
+        KV_SERIALIZE(status)
+      END_KV_SERIALIZE_MAP()
+    };
+  };
+
   struct tx_info
   {
     std::string id_hash;
@@ -920,6 +965,7 @@ namespace cryptonote
     uint64_t receive_time;
     bool relayed;
     uint64_t last_relayed_time;
+    bool do_not_relay;
 
     BEGIN_KV_SERIALIZE_MAP()
       KV_SERIALIZE(id_hash)
@@ -934,6 +980,7 @@ namespace cryptonote
       KV_SERIALIZE(receive_time)
       KV_SERIALIZE(relayed)
       KV_SERIALIZE(last_relayed_time)
+      KV_SERIALIZE(do_not_relay)
     END_KV_SERIALIZE_MAP()
   };
 

@@ -67,6 +67,9 @@ extern "C"
 }
 using namespace cryptonote;
 
+#undef MONERO_DEFAULT_LOG_CATEGORY
+#define MONERO_DEFAULT_LOG_CATEGORY "wallet.wallet2"
+
 // used to choose when to stop adding outputs to a tx
 #define APPROXIMATE_INPUT_BYTES 80
 
@@ -2065,7 +2068,7 @@ crypto::secret_key wallet2::generate(const std::string& wallet_, const std::stri
   THROW_WALLET_EXCEPTION_IF(!r, error::file_save_error, m_keys_file);
 
   r = file_io_utils::save_string_to_file(m_wallet_file + ".address.txt", m_account.get_public_address_str(m_testnet));
-  if(!r) LOG_PRINT_RED_L0("String with address text not saved");
+  if(!r) MERROR("String with address text not saved");
 
   cryptonote::block b;
   generate_genesis(b);
@@ -2100,7 +2103,7 @@ void wallet2::generate(const std::string& wallet_, const std::string& password,
   THROW_WALLET_EXCEPTION_IF(!r, error::file_save_error, m_keys_file);
 
   r = file_io_utils::save_string_to_file(m_wallet_file + ".address.txt", m_account.get_public_address_str(m_testnet));
-  if(!r) LOG_PRINT_RED_L0("String with address text not saved");
+  if(!r) MERROR("String with address text not saved");
 
   cryptonote::block b;
   generate_genesis(b);
@@ -2135,7 +2138,7 @@ void wallet2::generate(const std::string& wallet_, const std::string& password,
   THROW_WALLET_EXCEPTION_IF(!r, error::file_save_error, m_keys_file);
 
   r = file_io_utils::save_string_to_file(m_wallet_file + ".address.txt", m_account.get_public_address_str(m_testnet));
-  if(!r) LOG_PRINT_RED_L0("String with address text not saved");
+  if(!r) MERROR("String with address text not saved");
 
   cryptonote::block b;
   generate_genesis(b);
@@ -2234,7 +2237,7 @@ bool wallet2::prepare_file_names(const std::string& file_path)
   return true;
 }
 //----------------------------------------------------------------------------------------------------
-bool wallet2::check_connection(uint32_t *version)
+bool wallet2::check_connection(uint32_t *version, uint32_t timeout)
 {
   boost::lock_guard<boost::mutex> lock(m_daemon_rpc_mutex);
 
@@ -2248,7 +2251,7 @@ bool wallet2::check_connection(uint32_t *version)
       u.port = m_testnet ? config::testnet::RPC_DEFAULT_PORT : config::RPC_DEFAULT_PORT;
     }
 
-    if (!m_http_client.connect(u.host, std::to_string(u.port), 10000))
+    if (!m_http_client.connect(u.host, std::to_string(u.port), timeout))
       return false;
   }
 
@@ -2733,7 +2736,7 @@ float wallet2::get_output_relatedness(const transfer_details &td0, const transfe
   return 0.0f;
 }
 //----------------------------------------------------------------------------------------------------
-size_t wallet2::pop_best_value_from(const transfer_container &transfers, std::vector<size_t> &unused_indices, const std::list<size_t>& selected_transfers) const
+size_t wallet2::pop_best_value_from(const transfer_container &transfers, std::vector<size_t> &unused_indices, const std::list<size_t>& selected_transfers, bool smallest) const
 {
   std::vector<size_t> candidates;
   float best_relatedness = 1.0f;
@@ -2761,13 +2764,30 @@ size_t wallet2::pop_best_value_from(const transfer_container &transfers, std::ve
     if (relatedness == best_relatedness)
       candidates.push_back(n);
   }
-  size_t idx = crypto::rand<size_t>() % candidates.size();
+
+  // we have all the least related outputs in candidates, so we can pick either
+  // the smallest, or a random one, depending on request
+  size_t idx;
+  if (smallest)
+  {
+    idx = 0;
+    for (size_t n = 0; n < candidates.size(); ++n)
+    {
+      const transfer_details &td = transfers[unused_indices[candidates[n]]];
+      if (td.amount() < transfers[unused_indices[candidates[idx]]].amount())
+        idx = n;
+    }
+  }
+  else
+  {
+    idx = crypto::rand<size_t>() % candidates.size();
+  }
   return pop_index (unused_indices, candidates[idx]);
 }
 //----------------------------------------------------------------------------------------------------
-size_t wallet2::pop_best_value(std::vector<size_t> &unused_indices, const std::list<size_t>& selected_transfers) const
+size_t wallet2::pop_best_value(std::vector<size_t> &unused_indices, const std::list<size_t>& selected_transfers, bool smallest) const
 {
-  return pop_best_value_from(m_transfers, unused_indices, selected_transfers);
+  return pop_best_value_from(m_transfers, unused_indices, selected_transfers, smallest);
 }
 //----------------------------------------------------------------------------------------------------
 // Select random input sources for transaction.
@@ -4109,8 +4129,11 @@ std::vector<wallet2::pending_tx> wallet2::create_transactions_2(std::vector<cryp
     }
   }
 
-  // while we have something to send
-  while ((!dsts.empty() && dsts[0].amount > 0) || adding_fee) {
+  // while:
+  // - we have something to send
+  // - or we need to gather more fee
+  // - or we have just one input in that tx, which is rct (to try and make all/most rct txes 2/2)
+  while ((!dsts.empty() && dsts[0].amount > 0) || adding_fee || (use_rct && txes.back().selected_transfers.size() == 1)) {
     TX &tx = txes.back();
 
     // if we need to spend money and don't have any left, we fail
@@ -4121,7 +4144,14 @@ std::vector<wallet2::pending_tx> wallet2::create_transactions_2(std::vector<cryp
 
     // get a random unspent output and use it to pay part (or all) of the current destination (and maybe next one, etc)
     // This could be more clever, but maybe at the cost of making probabilistic inferences easier
-    size_t idx = !prefered_inputs.empty() ? pop_back(prefered_inputs) : !unused_transfers_indices.empty() ? pop_best_value(unused_transfers_indices, tx.selected_transfers) : pop_best_value(unused_dust_indices, tx.selected_transfers);
+    size_t idx;
+    if ((dsts.empty() || dsts[0].amount == 0) && !adding_fee)
+      // the "make rct txes 2/2" case - we pick a small value output to "clean up" the wallet too
+      idx = pop_best_value(unused_dust_indices.empty() ? unused_transfers_indices : unused_dust_indices, tx.selected_transfers, true);
+    else if (!prefered_inputs.empty())
+      idx = pop_back(prefered_inputs);
+    else
+      idx = pop_best_value(unused_transfers_indices.empty() ? unused_dust_indices : unused_transfers_indices, tx.selected_transfers);
 
     const transfer_details &td = m_transfers[idx];
     LOG_PRINT_L2("Picking output " << idx << ", amount " << print_money(td.amount()) << ", ki " << td.m_key_image);
@@ -4228,13 +4258,19 @@ std::vector<wallet2::pending_tx> wallet2::create_transactions_2(std::vector<cryp
       else
       {
         LOG_PRINT_L2("We made a tx, adjusting fee and saving it");
-        if (use_rct)
-          transfer_selected_rct(tx.dsts, tx.selected_transfers, fake_outs_count, unlock_time, needed_fee, extra,
-            test_tx, test_ptx);
-        else
-          transfer_selected(tx.dsts, tx.selected_transfers, fake_outs_count, unlock_time, needed_fee, extra,
-            detail::digit_split_strategy, tx_dust_policy(::config::DEFAULT_DUST_THRESHOLD), test_tx, test_ptx);
-        txBlob = t_serializable_object_to_blob(test_ptx.tx);
+        do {
+          if (use_rct)
+            transfer_selected_rct(tx.dsts, tx.selected_transfers, fake_outs_count, unlock_time, needed_fee, extra,
+              test_tx, test_ptx);
+          else
+            transfer_selected(tx.dsts, tx.selected_transfers, fake_outs_count, unlock_time, needed_fee, extra,
+              detail::digit_split_strategy, tx_dust_policy(::config::DEFAULT_DUST_THRESHOLD), test_tx, test_ptx);
+          txBlob = t_serializable_object_to_blob(test_ptx.tx);
+          needed_fee = calculate_fee(fee_per_kb, txBlob, fee_multiplier);
+          LOG_PRINT_L2("Made an attempt at a  final " << ((txBlob.size() + 1023)/1024) << " kB tx, with " << print_money(test_ptx.fee) <<
+            " fee  and " << print_money(test_ptx.change_dts.amount) << " change");
+        } while (needed_fee > test_ptx.fee);
+
         LOG_PRINT_L2("Made a final " << ((txBlob.size() + 1023)/1024) << " kB tx, with " << print_money(test_ptx.fee) <<
           " fee  and " << print_money(test_ptx.change_dts.amount) << " change");
 
@@ -5117,7 +5153,7 @@ std::string wallet2::encrypt(const std::string &plaintext, const crypto::secret_
     crypto::signature &signature = *(crypto::signature*)&ciphertext[ciphertext.size() - sizeof(crypto::signature)];
     crypto::generate_signature(hash, pkey, skey, signature);
   }
-  return std::move(ciphertext);
+  return ciphertext;
 }
 //----------------------------------------------------------------------------------------------------
 std::string wallet2::encrypt_with_view_secret_key(const std::string &plaintext, bool authenticated) const
@@ -5147,7 +5183,7 @@ std::string wallet2::decrypt(const std::string &ciphertext, const crypto::secret
       error::wallet_internal_error, "Failed to authenticate criphertext");
   }
   crypto::chacha8(ciphertext.data() + sizeof(iv), ciphertext.size() - prefix_size, key, iv, &plaintext[0]);
-  return std::move(plaintext);
+  return plaintext;
 }
 //----------------------------------------------------------------------------------------------------
 std::string wallet2::decrypt_with_view_secret_key(const std::string &ciphertext, bool authenticated) const
@@ -5185,7 +5221,7 @@ std::string wallet2::make_uri(const std::string &address, const std::string &pay
   }
 
   std::string uri = "monero:" + address;
-  bool n_fields = 0;
+  unsigned int n_fields = 0;
 
   if (!payment_id.empty())
   {
@@ -5295,6 +5331,92 @@ bool wallet2::parse_uri(const std::string &uri, std::string &address, std::strin
     }
   }
   return true;
+}
+//----------------------------------------------------------------------------------------------------
+uint64_t wallet2::get_blockchain_height_by_date(uint16_t year, uint8_t month, uint8_t day)
+{
+  uint32_t version;
+  if (!check_connection(&version))
+  {
+    throw std::runtime_error("failed to connect to daemon: " + get_daemon_address());
+  }
+  if (version < MAKE_CORE_RPC_VERSION(1, 6))
+  {
+    throw std::runtime_error("this function requires RPC version 1.6 or higher");
+  }
+  std::tm date = { 0, 0, 0, 0, 0, 0, 0, 0 };
+  date.tm_year = year - 1900;
+  date.tm_mon  = month - 1;
+  date.tm_mday = day;
+  if (date.tm_mon < 0 || 11 < date.tm_mon || date.tm_mday < 1 || 31 < date.tm_mday)
+  {
+    throw std::runtime_error("month or day out of range");
+  }
+  uint64_t timestamp_target = std::mktime(&date);
+  std::string err;
+  uint64_t height_min = 0;
+  uint64_t height_max = get_daemon_blockchain_height(err) - 1;
+  if (!err.empty())
+  {
+    throw std::runtime_error("failed to get blockchain height");
+  }
+  while (true)
+  {
+    COMMAND_RPC_GET_BLOCKS_BY_HEIGHT::request req;
+    COMMAND_RPC_GET_BLOCKS_BY_HEIGHT::response res;
+    uint64_t height_mid = (height_min + height_max) / 2;
+    req.heights =
+    {
+      height_min,
+      height_mid,
+      height_max
+    };
+    bool r = net_utils::invoke_http_bin_remote_command2(get_daemon_address() + "/getblocks_by_height.bin", req, res, m_http_client);
+    if (!r || res.status != CORE_RPC_STATUS_OK)
+    {
+      std::ostringstream oss;
+      oss << "failed to get blocks by heights: ";
+      for (auto height : req.heights)
+        oss << height << ' ';
+      oss << endl << "reason: ";
+      if (!r)
+        oss << "possibly lost connection to daemon";
+      else if (res.status == CORE_RPC_STATUS_BUSY)
+        oss << "daemon is busy";
+      else
+        oss << res.status;
+      throw std::runtime_error(oss.str());
+    }
+    cryptonote::block blk_min, blk_mid, blk_max;
+    if (!parse_and_validate_block_from_blob(res.blocks[0].block, blk_min)) throw std::runtime_error("failed to parse blob at height " + height_min);
+    if (!parse_and_validate_block_from_blob(res.blocks[1].block, blk_mid)) throw std::runtime_error("failed to parse blob at height " + height_mid);
+    if (!parse_and_validate_block_from_blob(res.blocks[2].block, blk_max)) throw std::runtime_error("failed to parse blob at height " + height_max);
+    uint64_t timestamp_min = blk_min.timestamp;
+    uint64_t timestamp_mid = blk_mid.timestamp;
+    uint64_t timestamp_max = blk_max.timestamp;
+    if (!(timestamp_min <= timestamp_mid && timestamp_mid <= timestamp_max))
+    {
+      // the timestamps are not in the chronological order. 
+      // assuming they're sufficiently close to each other, simply return the smallest height
+      return std::min({height_min, height_mid, height_max});
+    }
+    if (timestamp_target > timestamp_max)
+    {
+      throw std::runtime_error("specified date is in the future");
+    }
+    if (timestamp_target <= timestamp_min + 2 * 24 * 60 * 60)   // two days of "buffer" period
+    {
+      return height_min;
+    }
+    if (timestamp_target <= timestamp_mid)
+      height_max = height_mid;
+    else
+      height_min = height_mid;
+    if (height_max - height_min <= 2 * 24 * 30)        // don't divide the height range finer than two days
+    {
+      return height_min;
+    }
+  }
 }
 //----------------------------------------------------------------------------------------------------
 void wallet2::generate_genesis(cryptonote::block& b) {
