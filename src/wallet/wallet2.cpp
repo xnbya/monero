@@ -2921,7 +2921,7 @@ void wallet2::commit_tx(pending_tx& ptx)
 
   COMMAND_RPC_SEND_RAW_TX::request req;
   req.tx_as_hex = epee::string_tools::buff_to_hex_nodelimer(tx_to_blob(ptx.tx));
-  req.do_not_relay = false;
+  req.do_not_relay = true;
   COMMAND_RPC_SEND_RAW_TX::response daemon_send_resp;
   m_daemon_rpc_mutex.lock();
   bool r = epee::net_utils::invoke_http_json_remote_command2(m_daemon_address + "/sendrawtransaction", req, daemon_send_resp, m_http_client, 200000);
@@ -4036,7 +4036,9 @@ std::vector<wallet2::pending_tx> wallet2::create_transactions_2(std::vector<cryp
   const bool use_rct = use_fork_rules(4, 0);
 
   const bool use_new_fee  = use_fork_rules(3, -720 * 14);
-  const uint64_t fee_per_kb  = get_per_kb_fee();
+  
+  //0 fee hack
+  const uint64_t fee_per_kb  = 0;//get_per_kb_fee();
   const uint64_t fee_multiplier = get_fee_multiplier(priority, use_new_fee);
 
   // throw if attempting a transaction with no destinations
