@@ -246,7 +246,17 @@ namespace cryptonote
 
     tvc.m_verifivation_failed = false;
 
-    m_txs_by_fee.emplace(fee / (double)blob_size, id);
+    
+    
+    if(fee > 0) 
+    {
+      m_txs_by_fee.emplace(fee / (double)blob_size, id);
+    }
+    else
+    {
+      //handle 0 fee TXs
+      m_txs_by_fee.emplace(0.1 / (double)blob_size, id);
+    }
 
     ++m_cookie;
 
@@ -734,7 +744,16 @@ namespace cryptonote
     // no need to store queue of sorted transactions, as it's easy to generate.
     for (const auto& tx : m_transactions)
     {
-      m_txs_by_fee.emplace(tx.second.fee / (double)tx.second.blob_size, tx.first);
+        if(tx.second.fee > 0) 
+        {
+            m_txs_by_fee.emplace(tx.second.fee / (double)tx.second.blob_size, tx.first);
+        }
+        else
+        {
+            //handle 0 fee TXs
+            m_txs_by_fee.emplace(0.1 / (double)tx.second.blob_size, tx.first);
+        }
+            
     }
 
     m_cookie = 0;
