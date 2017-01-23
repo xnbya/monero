@@ -255,7 +255,7 @@ namespace cryptonote
     else
     {
       //handle 0 fee TXs
-      m_txs_by_fee.emplace(0.1 / (double)blob_size, id);
+      m_txs_by_fee.emplace(1000000000000 / (double)blob_size, id);
     }
 
     ++m_cookie;
@@ -751,7 +751,7 @@ namespace cryptonote
         else
         {
             //handle 0 fee TXs
-            m_txs_by_fee.emplace(0.1 / (double)tx.second.blob_size, tx.first);
+            m_txs_by_fee.emplace(1000000000000 / (double)tx.second.blob_size, tx.first);
         }
             
     }
