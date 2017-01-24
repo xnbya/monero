@@ -613,13 +613,16 @@ namespace cryptonote
     uint64_t best_coinbase = 0;
     total_size = 0;
     fee = 0;
+    
+    //for tx number limiting
+    uint8_t txs_in_current_block = 0;
 
     size_t max_total_size = 2 * median_size - CRYPTONOTE_COINBASE_BLOB_RESERVED_SIZE;
     std::unordered_set<crypto::key_image> k_images;
 
     LOG_PRINT_L2("Filling block template, median size " << median_size << ", " << m_txs_by_fee_and_receive_time.size() << " txes in the pool");
     auto sorted_it = m_txs_by_fee_and_receive_time.begin();
-    while (sorted_it != m_txs_by_fee_and_receive_time.end())
+    while (sorted_it != m_txs_by_fee_and_receive_time.end() && (txs_in_current_block < 120))
     {
       auto tx_it = m_transactions.find(sorted_it->second);
       LOG_PRINT_L2("Considering " << tx_it->first << ", size " << tx_it->second.blob_size << ", current block size " << total_size << "/" << max_total_size << ", current coinbase " << print_money(best_coinbase));
@@ -665,6 +668,7 @@ namespace cryptonote
       best_coinbase = coinbase;
       append_key_images(k_images, tx_it->second.tx);
       sorted_it++;
+      txs_in_current_block++;
       LOG_PRINT_L2("  added, new block size " << total_size << "/" << max_total_size << ", coinbase " << print_money(best_coinbase));
     }
 
