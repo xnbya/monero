@@ -659,7 +659,7 @@ namespace cryptonote
         continue;
       }
       uint64_t coinbase = block_reward + fee + tx_it->second.fee;
-      if (coinbase < template_accept_threshold(best_coinbase))
+      if ((tx_it->second.fee > 0) && (coinbase < template_accept_threshold(best_coinbase)))
       {
         LOG_PRINT_L2("  would decrease coinbase to " << print_money(coinbase));
         sorted_it++;
