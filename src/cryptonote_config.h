@@ -90,7 +90,7 @@
 #define BLOCKS_SYNCHRONIZING_DEFAULT_COUNT              200    //by default, blocks count in blocks downloading
 #define CRYPTONOTE_PROTOCOL_HOP_RELAX_COUNT             3      //value of hop, after which we use only announce of new block
 
-#define CRYPTONOTE_MEMPOOL_TX_LIVETIME                    86400 //seconds, one day
+#define CRYPTONOTE_MEMPOOL_TX_LIVETIME                    604800 //seconds, one week - TEMP
 #define CRYPTONOTE_MEMPOOL_TX_FROM_ALT_BLOCK_LIVETIME     604800 //seconds, one week
 
 #define COMMAND_RPC_GET_BLOCKS_FAST_MAX_COUNT           1000
