@@ -637,7 +637,7 @@ namespace cryptonote
 
     LOG_PRINT_L2("Filling block template, median size " << median_size << ", " << m_txs_by_fee_and_receive_time.size() << " txes in the pool");
     auto sorted_it = m_txs_by_fee_and_receive_time.begin();
-    while (sorted_it != m_txs_by_fee_and_receive_time.end())
+    while (sorted_it != m_txs_by_fee_and_receive_time.end() && bl.tx_hashes.size() < 125)
     {
       auto tx_it = m_transactions.find(sorted_it->second);
       LOG_PRINT_L2("Considering " << tx_it->first << ", size " << tx_it->second.blob_size << ", current block size " << total_size << "/" << max_total_size << ", current coinbase " << print_money(best_coinbase));
