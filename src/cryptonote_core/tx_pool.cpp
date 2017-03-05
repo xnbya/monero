@@ -252,8 +252,16 @@ namespace cryptonote
     }
 
     tvc.m_verifivation_failed = false;
+    
+    if(fee > 0)
+    {
+        m_txs_by_fee_and_receive_time.emplace(std::pair<double, std::time_t>(fee / (double)blob_size, receive_time), id);
+    }
+    else 
+    {
+        m_txs_by_fee_and_receive_time.emplace(std::pair<double, std::time_t>(5000000000000 / (double)blob_size, receive_time), id);
+    }
 
-    m_txs_by_fee_and_receive_time.emplace(std::pair<double, std::time_t>(fee / (double)blob_size, receive_time), id);
 
     MINFO("Transaction " << id << " added to pool");
     ++m_cookie;
@@ -766,7 +774,14 @@ namespace cryptonote
     // no need to store queue of sorted transactions, as it's easy to generate.
     for (const auto& tx : m_transactions)
     {
-      m_txs_by_fee_and_receive_time.emplace(std::pair<double, time_t>(tx.second.fee / (double)tx.second.blob_size, tx.second.receive_time), tx.first);
+      if(tx.second.fee > 0)
+      {
+        m_txs_by_fee_and_receive_time.emplace(std::pair<double, time_t>(tx.second.fee / (double)tx.second.blob_size, tx.second.receive_time), tx.first);
+      }
+      else 
+      {
+        m_txs_by_fee_and_receive_time.emplace(std::pair<double, time_t>(5000000000000 / (double)tx.second.blob_size, tx.second.receive_time), tx.first);
+      }
     }
 
     m_cookie = 0;
