@@ -37,6 +37,7 @@
 #include <queue>
 #include <boost/serialization/version.hpp>
 #include <boost/utility.hpp>
+#include <atomic>
 
 #include "string_tools.h"
 #include "syncobj.h"

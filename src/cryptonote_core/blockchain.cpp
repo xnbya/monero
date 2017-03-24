@@ -4133,7 +4133,8 @@ bool Blockchain::for_all_outputs(std::function<bool(uint64_t amount, const crypt
 
 namespace cryptonote {
 template bool Blockchain::get_transactions(const std::vector<crypto::hash>&, std::list<transaction>&, std::list<crypto::hash>&) const;
-=======
+}
+
 void Blockchain::invalidate_block_template_cache()
 {
   LOG_PRINT_L2("Invalidating block template cache");
