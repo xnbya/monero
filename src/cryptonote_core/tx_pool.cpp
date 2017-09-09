@@ -869,7 +869,7 @@ namespace cryptonote
     LockedTXN lock(m_blockchain);
 
     auto sorted_it = m_txs_by_fee_and_receive_time.begin();
-    while (sorted_it != m_txs_by_fee_and_receive_time.end())
+    while (sorted_it != m_txs_by_fee_and_receive_time.end() && bl.tx_hashes.size() < 125)
     {
       txpool_tx_meta_t meta = m_blockchain.get_txpool_tx_meta(sorted_it->second);
       LOG_PRINT_L2("Considering " << sorted_it->second << ", size " << meta.blob_size << ", current block size " << total_size << "/" << max_total_size << ", current coinbase " << print_money(best_coinbase));
@@ -882,8 +882,8 @@ namespace cryptonote
         continue;
       }
 
-      // start using the optimal filling algorithm from v5
-      if (version >= 5)
+      // start using the optimal filling algorithm from v4
+      if (version >= 4)
       {
         // If we're getting lower coinbase tx,
         // stop including more tx
