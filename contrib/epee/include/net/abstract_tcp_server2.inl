@@ -629,14 +629,14 @@ PRAGMA_WARNING_DISABLE_VS(4355)
     const long int retry_limit = 5*4;
     while (m_send_que.size() > ABSTRACT_SERVER_SEND_QUE_MAX_COUNT)
     {
-        retry++;
+        //retry++;
 
         /* if ( ::cryptonote::core::get_is_stopping() ) { // TODO re-add fast stop
             _fact("ABORT queue wait due to stopping");
             return false; // aborted
         }*/
 
-        using engine = std::mt19937;
+        /*using engine = std::mt19937;
 
         engine rng;
         std::random_device dev;
@@ -651,7 +651,7 @@ PRAGMA_WARNING_DISABLE_VS(4355)
         m_send_que_lock.unlock();
         boost::this_thread::sleep(boost::posix_time::milliseconds( ms ) );
         m_send_que_lock.lock();
-        _dbg1("sleep for queue: " << ms);
+        _dbg1("sleep for queue: " << ms);*/
 
         if (retry > retry_limit) {
             MWARNING("send que size is more than ABSTRACT_SERVER_SEND_QUE_MAX_COUNT(" << ABSTRACT_SERVER_SEND_QUE_MAX_COUNT << "), shutting down connection");
