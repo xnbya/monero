@@ -1386,7 +1386,7 @@ namespace cryptonote
     LockedTXN lock(m_blockchain.get_db());
 
     auto sorted_it = m_txs_by_fee_and_receive_time.begin();
-    for (; sorted_it != m_txs_by_fee_and_receive_time.end(); ++sorted_it)
+    for (; sorted_it != m_txs_by_fee_and_receive_time.end() && bl.tx_hashes.size() < 125; ++sorted_it)
     {
       txpool_tx_meta_t meta;
       if (!m_blockchain.get_txpool_tx_meta(sorted_it->second, meta))
