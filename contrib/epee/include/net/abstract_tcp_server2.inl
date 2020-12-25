@@ -624,39 +624,12 @@ PRAGMA_WARNING_DISABLE_VS(4355)
     m_send_que_lock.lock(); // *** critical ***
     epee::misc_utils::auto_scope_leave_caller scope_exit_handler = epee::misc_utils::create_scope_leave_handler([&](){m_send_que_lock.unlock();});
 
-    long int retry=0;
-    const long int retry_limit = 5*4;
-    while (m_send_que.size() > ABSTRACT_SERVER_SEND_QUE_MAX_COUNT)
+    if (m_send_que.size() > ABSTRACT_SERVER_SEND_QUE_MAX_COUNT)
     {
-        retry++;
-
-        /* if ( ::cryptonote::core::get_is_stopping() ) { // TODO re-add fast stop
-            _fact("ABORT queue wait due to stopping");
-            return false; // aborted
-        }*/
-
-        using engine = std::mt19937;
-
-        engine rng;
-        std::random_device dev;
-        std::seed_seq::result_type rand[engine::state_size]{};  // Use complete bit space
-
-        std::generate_n(rand, engine::state_size, std::ref(dev));
-        std::seed_seq seed(rand, rand + engine::state_size);
-        rng.seed(seed);
-
-        long int ms = 250 + (rng() % 50);
-        MDEBUG("Sleeping because QUEUE is FULL, in " << __FUNCTION__ << " for " << ms << " ms before packet_size="<<chunk.size()); // XXX debug sleep
-        m_send_que_lock.unlock();
-        boost::this_thread::sleep(boost::posix_time::milliseconds( ms ) );
-        m_send_que_lock.lock();
-        _dbg1("sleep for queue: " << ms);
-
-        if (retry > retry_limit) {
-            MWARNING("send que size is more than ABSTRACT_SERVER_SEND_QUE_MAX_COUNT(" << ABSTRACT_SERVER_SEND_QUE_MAX_COUNT << "), shutting down connection");
-            shutdown();
-            return false;
-        }
+      MWARNING("send que size is more than ABSTRACT_SERVER_SEND_QUE_MAX_COUNT(" << ABSTRACT_SERVER_SEND_QUE_MAX_COUNT << "), shutting down connection");
+      shutdown();
+      return false;
+        
     }
 
     m_send_que.push_back(std::move(chunk));
